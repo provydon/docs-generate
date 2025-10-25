@@ -13,6 +13,8 @@
  [☕ Buy me a coffee](https://buymeacoffee.com/provydon)
 </div>
 
+![Swagger UI Screenshot](docs/screenshot.png)
+
 ---
 
 ## ✨ Why Docs Generate?
