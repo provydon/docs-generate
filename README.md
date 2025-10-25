@@ -10,8 +10,7 @@
 
 *Generate beautiful API documentation automatically from your existing Laravel code*
 
-[⭐ Star on GitHub](https://github.com/provydon/docs-generate) • [☕ Buy me a coffee](https://buymeacoffee.com/provydon) • [📖 Documentation](#-quick-start)
-
+ [☕ Buy me a coffee](https://buymeacoffee.com/provydon)
 </div>
 
 ---
