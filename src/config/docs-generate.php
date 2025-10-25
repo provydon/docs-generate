@@ -147,6 +147,37 @@ return [
 
     'output_path' => storage_path('api-docs/api-docs.json'),
 
+    'storage' => [
+        'default' => env('DOCS_STORAGE_DRIVER', 'local'),
+        'drivers' => [
+            'local' => [
+                'root' => storage_path('app'),
+                'public_path' => 'storage',
+                'base_url' => env('APP_URL'),
+            ],
+            's3' => [
+                'key' => env('AWS_ACCESS_KEY_ID'),
+                'secret' => env('AWS_SECRET_ACCESS_KEY'),
+                'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
+                'bucket' => env('DOCS_S3_BUCKET'),
+                'prefix' => env('DOCS_S3_PREFIX', 'api-docs'),
+                'acl' => env('DOCS_S3_ACL', 'public-read'),
+                'base_url' => env('DOCS_S3_BASE_URL'),
+            ],
+            'ftp' => [
+                'host' => env('DOCS_FTP_HOST'),
+                'port' => env('DOCS_FTP_PORT', 21),
+                'username' => env('DOCS_FTP_USERNAME'),
+                'password' => env('DOCS_FTP_PASSWORD'),
+                'root' => env('DOCS_FTP_ROOT', '/'),
+                'ssl' => env('DOCS_FTP_SSL', false),
+                'passive' => env('DOCS_FTP_PASSIVE', true),
+                'timeout' => env('DOCS_FTP_TIMEOUT', 90),
+                'base_url' => env('DOCS_FTP_BASE_URL'),
+            ],
+        ],
+    ],
+
     'cors' => [
         'enabled' => true,
         'allow_origins' => [env('APP_URL', 'http://localhost')],

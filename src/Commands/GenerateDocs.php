@@ -8,6 +8,7 @@ use Illuminate\Support\Str;
 use ReflectionClass;
 use ReflectionMethod;
 use Illuminate\Foundation\Http\FormRequest;
+use SwaggerAuto\Storage\StorageManager;
 
 class GenerateDocs extends Command
 {
@@ -16,6 +17,13 @@ class GenerateDocs extends Command
 
     protected $paths = [];
     protected $schemas = [];
+    protected $storageManager;
+
+    public function __construct()
+    {
+        parent::__construct();
+        $this->storageManager = new StorageManager(config('docs-generate.storage.default', 'local'));
+    }
 
     public function handle()
     {
@@ -739,13 +747,26 @@ class GenerateDocs extends Command
     protected function saveApiDocument($apiDoc)
     {
         $outputPath = config('docs-generate.output_path');
-        $directory = dirname($outputPath);
-
-        if (!is_dir($directory)) {
-            mkdir($directory, 0755, true);
+        $relativePath = $this->getRelativePath($outputPath);
+        
+        $content = json_encode($apiDoc, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        
+        if ($this->storageManager->put($relativePath, $content)) {
+            $this->info('📄 Output: ' . $this->storageManager->url($relativePath));
+        } else {
+            $this->error('Failed to save API documentation to storage');
         }
-
-        file_put_contents($outputPath, json_encode($apiDoc, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    }
+    
+    protected function getRelativePath(string $fullPath): string
+    {
+        $storageRoot = config('docs-generate.storage.drivers.local.root', storage_path('app'));
+        
+        if (str_starts_with($fullPath, $storageRoot)) {
+            return ltrim(str_replace($storageRoot, '', $fullPath), '/');
+        }
+        
+        return basename($fullPath);
     }
 }
 

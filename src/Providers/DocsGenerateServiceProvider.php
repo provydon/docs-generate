@@ -7,6 +7,7 @@ use SwaggerAuto\Commands\GenerateDocs;
 use SwaggerAuto\Http\Middleware\HandleCors;
 use SwaggerAuto\Http\Middleware\DocumentationAuth;
 use Illuminate\Support\Facades\Route;
+use SwaggerAuto\Storage\StorageManager;
 
 class DocsGenerateServiceProvider extends ServiceProvider
 {
@@ -57,21 +58,40 @@ class DocsGenerateServiceProvider extends ServiceProvider
             })->name('docs.ui');
 
             Route::get($jsonPath, function () {
-                $path = config('docs-generate.output_path');
+                $storageManager = new StorageManager(config('docs-generate.storage.default', 'local'));
+                $outputPath = config('docs-generate.output_path');
+                $relativePath = $this->getRelativePath($outputPath);
 
-                if (!file_exists($path)) {
+                if (!$storageManager->exists($relativePath)) {
                     return response()->json([
                         'error' => 'API documentation not found. Please run: php artisan docs:generate'
                     ], 404);
                 }
 
-                $content = file_get_contents($path);
+                $content = $storageManager->get($relativePath);
+
+                if ($content === null) {
+                    return response()->json([
+                        'error' => 'Failed to read API documentation from storage'
+                    ], 500);
+                }
 
                 return response($content, 200, [
                     'Content-Type' => 'application/json'
                 ]);
             })->name('docs.json');
         });
+    }
+    
+    protected function getRelativePath(string $fullPath): string
+    {
+        $storageRoot = config('docs-generate.storage.drivers.local.root', storage_path('app'));
+        
+        if (str_starts_with($fullPath, $storageRoot)) {
+            return ltrim(str_replace($storageRoot, '', $fullPath), '/');
+        }
+        
+        return basename($fullPath);
     }
 }
 
