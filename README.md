@@ -2,7 +2,7 @@
 
 # 🚀 Docs Generate
 
-**Automatic API documentation for your Laravel app — zero annotations, OpenAPI 3.0 JSON & Swagger UI.**
+**Automatic API documentation for your Laravel app — no annotations or doc blocks needed, OpenAPI 3.0 JSON & Swagger UI.**
 
 [![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](https://choosealicense.com/licenses/mit/)
 [![Laravel](https://img.shields.io/badge/Laravel-10%2B-red.svg)](https://laravel.com)
