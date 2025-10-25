@@ -462,19 +462,40 @@ class GenerateDocs extends Command
         }
     }
 
-    protected function convertRulesToSchema($field, $rules)
+    public function convertRulesToSchema($field, $rules)
     {
         $schema = [];
 
         $fieldDetection = config('docs-generate.field_detection', []);
-        foreach ($fieldDetection as $key => $detection) {
-            if (Str::contains($field, $key)) {
-                return $detection;
+        $hasClosureRules = false;
+        
+        // Check if there are any closure rules
+        foreach ($rules as $rule) {
+            if (is_object($rule) && $rule instanceof \Closure) {
+                $hasClosureRules = true;
+                break;
+            }
+        }
+        
+        // Only apply field detection if there are no closure rules
+        if (!$hasClosureRules) {
+            foreach ($fieldDetection as $key => $detection) {
+                if (Str::contains($field, $key)) {
+                    return $detection;
+                }
             }
         }
 
         foreach ($rules as $rule) {
             if (is_object($rule)) {
+                // Handle closure-based validation rules
+                if ($rule instanceof \Closure) {
+                    $closureInfo = $this->analyzeClosureRule($rule, $field);
+                    if ($closureInfo) {
+                        $this->applyClosureSchema($schema, $closureInfo);
+                        continue;
+                    }
+                }
                 $rule = (string) $rule;
             }
 
@@ -746,6 +767,118 @@ class GenerateDocs extends Command
         }
 
         file_put_contents($outputPath, json_encode($apiDoc, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    }
+
+    protected function analyzeClosureRule(\Closure $closure, string $field): ?array
+    {
+        try {
+            $reflection = new \ReflectionFunction($closure);
+            $source = $this->getClosureSource($reflection);
+            
+            if (!$source) {
+                // Fallback: return basic closure info
+                return [
+                    'type' => 'string',
+                    'description' => 'Custom validation rule (Closure)',
+                ];
+            }
+
+            return $this->parseClosureValidation($source, $field);
+        } catch (\Exception $e) {
+            // Fallback: return basic closure info
+            return [
+                'type' => 'string',
+                'description' => 'Custom validation rule (Closure)',
+            ];
+        }
+    }
+
+    protected function getClosureSource(\ReflectionFunction $reflection): ?string
+    {
+        try {
+            $fileName = $reflection->getFileName();
+            $startLine = $reflection->getStartLine();
+            $endLine = $reflection->getEndLine();
+
+            if (!$fileName || !file_exists($fileName)) {
+                return null;
+            }
+
+            $fileLines = file($fileName);
+            $lines = array_slice($fileLines, $startLine - 1, $endLine - $startLine + 1);
+            
+            return implode('', $lines);
+        } catch (\Exception $e) {
+            return null;
+        }
+    }
+
+    protected function parseClosureValidation(string $source, string $field): ?array
+    {
+        $info = [
+            'type' => 'string',
+            'description' => 'Custom validation rule',
+        ];
+
+        // Look for common validation patterns in closure source
+        if (preg_match('/return\s+.*?->(?:validate|fails|passes)/', $source)) {
+            $info['description'] = 'Custom validation with additional checks';
+        }
+
+        // Check for email validation
+        if (preg_match('/email|@/', $source)) {
+            $info['type'] = 'string';
+            $info['format'] = 'email';
+            $info['description'] = 'Email validation with custom rules';
+        }
+
+        // Check for numeric validation
+        if (preg_match('/is_numeric|is_int|is_float|\d+/', $source)) {
+            $info['type'] = 'number';
+            $info['description'] = 'Numeric validation with custom rules';
+        }
+
+        // Check for required validation
+        if (preg_match('/required|not_empty|filled/', $source)) {
+            $info['description'] = 'Required field with custom validation';
+        }
+
+        // Check for length validation
+        if (preg_match('/strlen|length|min|max/', $source)) {
+            $info['type'] = 'string';
+            $info['description'] = 'String length validation with custom rules';
+        }
+
+        // Check for date validation
+        if (preg_match('/date|time|Carbon|DateTime/', $source)) {
+            $info['type'] = 'string';
+            $info['format'] = 'date-time';
+            $info['description'] = 'Date validation with custom rules';
+        }
+
+        // Check for array validation
+        if (preg_match('/is_array|array|count\(/', $source)) {
+            $info['type'] = 'array';
+            $info['description'] = 'Array validation with custom rules';
+        }
+
+        return $info;
+    }
+
+    protected function applyClosureSchema(array &$schema, array $closureInfo): void
+    {
+        foreach ($closureInfo as $key => $value) {
+            if ($key !== 'description' || !isset($schema['description'])) {
+                $schema[$key] = $value;
+            }
+        }
+
+        // Add a note that this field has custom validation
+        if (isset($schema['description'])) {
+            $schema['description'] .= ' (Custom validation)';
+        } else {
+            $schema['description'] = 'Custom validation rule';
+        }
     }
 }
 
