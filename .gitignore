@@ -11,4 +11,5 @@ composer.lock
 /tests/coverage/
 .env
 .env.backup
+*.bak
 
