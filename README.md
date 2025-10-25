@@ -10,8 +10,6 @@
 
 *Generate beautiful API documentation automatically from your existing Laravel code*
 
-**Code changes → run command → docs automatically reflect changes**
-
  [☕ Buy me a coffee](https://buymeacoffee.com/provydon)
 </div>
 
@@ -50,6 +48,8 @@ php artisan docs:generate
 ```
 
 **That's it!** 🎉 Your API is now fully documented.
+
+**Code changes → run command → docs automatically reflect changes**
 
 ### 🔄 **Documentation Stays in Sync**
 
