@@ -216,6 +216,27 @@ Edit `config/docs-generate.php`:
 
 ---
 
+## 📁 Output File
+
+The generated API documentation is saved as `public/api-docs.json` in your Laravel project. This approach offers several benefits:
+
+- **Always Accessible**: File is in the public folder, accessible via web server
+- **Part of Project**: Included in version control and deployments
+- **CDN Ready**: Can be served via CDN for better performance
+- **Simple**: No complex storage configuration needed
+
+**Direct Access:**
+```
+https://your-app.com/api-docs.json
+```
+
+**Via Route (with error handling):**
+```
+https://your-app.com/docs.json
+```
+
+---
+
 ## 🔧 How It Works
 
 ### 1. **Route Analysis**

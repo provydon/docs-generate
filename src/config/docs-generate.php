@@ -145,7 +145,7 @@ return [
         'json' => 'object',
     ],
 
-    'output_path' => storage_path('api-docs/api-docs.json'),
+    'output_path' => public_path('api-docs.json'),
 
     'cors' => [
         'enabled' => true,
