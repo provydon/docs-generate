@@ -474,8 +474,16 @@ class GenerateDocs extends Command
                             $request = app($className);
                             $rules = $request->rules();
                         } else {
-                            // Try to create a mock request and instantiate
-                            $mockRequest = \Illuminate\Http\Request::create('/', 'GET');
+                            // Try to create a mock request with sample data and instantiate
+                            // Create a POST request with sample data to satisfy rules() methods that depend on input
+                            $mockRequest = \Illuminate\Http\Request::create('/', 'POST', [
+                                'email' => 'test@example.com',
+                                'first_name' => 'Test',
+                                'last_name' => 'User',
+                                'phone_number' => '1234567890',
+                                'company_name' => 'Test Company',
+                                'password' => 'password123',
+                            ]);
                             
                             // Check if constructor accepts Request instance
                             if ($constructor && $constructor->getNumberOfParameters() > 0) {
@@ -488,8 +496,29 @@ class GenerateDocs extends Command
                                     // Check if it's Request or a subclass of Request
                                     if ($typeName === 'Illuminate\Http\Request' || 
                                         class_exists($typeName) && is_subclass_of($typeName, 'Illuminate\Http\Request')) {
-                                        $request = $reflection->newInstance($mockRequest);
-                                        $rules = $request->rules();
+                                        try {
+                                            $request = $reflection->newInstance($mockRequest);
+                                            $rules = $request->rules();
+                                            
+                                            // Filter out empty rules that might result from conditional logic
+                                            $filteredRules = [];
+                                            foreach ($rules as $field => $rule) {
+                                                if (is_array($rule)) {
+                                                    $filteredRule = array_filter($rule, function($r) {
+                                                        return !empty($r) && $r !== '';
+                                                    });
+                                                    if (!empty($filteredRule)) {
+                                                        $filteredRules[$field] = array_values($filteredRule);
+                                                    }
+                                                } elseif (!empty($rule) && $rule !== '') {
+                                                    $filteredRules[$field] = $rule;
+                                                }
+                                            }
+                                            $rules = $filteredRules;
+                                        } catch (\Exception $e) {
+                                            // If instantiation or rules() fails, fall back to source parsing
+                                            $rules = [];
+                                        }
                                     }
                                 }
                             }
@@ -539,21 +568,49 @@ class GenerateDocs extends Command
     protected function extractRulesFromSource(ReflectionClass $reflection)
     {
         try {
+            if (!$reflection->hasMethod('rules')) {
+                return [];
+            }
+            
             $fileName = $reflection->getFileName();
             
             if (!$fileName || !file_exists($fileName)) {
                 return [];
             }
             
-            $fileContent = file_get_contents($fileName);
+            $rulesMethod = $reflection->getMethod('rules');
+            $startLine = $rulesMethod->getStartLine();
+            $endLine = $rulesMethod->getEndLine();
             
-            // Try to extract rules array from the rules() method
-            if (preg_match('/public\s+function\s+rules\(\)\s*:\s*array\s*\{([^}]+)\}/s', $fileContent, $matches)) {
-                $rulesContent = $matches[1];
+            if (!$startLine || !$endLine) {
+                return [];
+            }
+            
+            $fileLines = file($fileName);
+            $methodLines = array_slice($fileLines, $startLine - 1, $endLine - $startLine + 1);
+            $methodContent = implode('', $methodLines);
+            
+            // Extract the return array using balanced bracket matching
+            if (preg_match('/return\s*\[/', $methodContent, $matches, PREG_OFFSET_CAPTURE)) {
+                $startPos = $matches[0][1] + strlen($matches[0][0]);
+                $content = substr($methodContent, $startPos);
                 
-                // Try to parse the return array
-                if (preg_match('/return\s*\[(.*?)\];/s', $rulesContent, $returnMatch)) {
-                    $rulesArrayContent = $returnMatch[1];
+                // Find the matching closing bracket
+                $bracketCount = 1;
+                $pos = 0;
+                $length = strlen($content);
+                
+                while ($pos < $length && $bracketCount > 0) {
+                    if ($content[$pos] === '[') {
+                        $bracketCount++;
+                    } elseif ($content[$pos] === ']') {
+                        $bracketCount--;
+                    }
+                    $pos++;
+                }
+                
+                if ($bracketCount === 0) {
+                    $rulesArrayContent = substr($content, 0, $pos - 1);
                     return $this->parseRulesArrayFromString($rulesArrayContent);
                 }
             }
@@ -567,35 +624,43 @@ class GenerateDocs extends Command
     protected function parseRulesArrayFromString($content)
     {
         $rules = [];
-        $lines = explode("\n", $content);
         
-        foreach ($lines as $line) {
-            $line = trim($line);
+        // Split by field definitions (looking for 'field' => pattern)
+        // This regex handles multi-line field definitions
+        preg_match_all("/['\"]([^'\"]+)['\"]\s*=>\s*(\[[\s\S]*?\]|['\"][^'\"]*['\"])(?:,|\s*$)/m", $content, $matches, PREG_SET_ORDER);
+        
+        foreach ($matches as $match) {
+            $field = $match[1];
+            $ruleValue = trim($match[2]);
             
-            // Match patterns like 'field' => ['rule1', 'rule2'] or 'field' => 'rule1|rule2'
-            if (preg_match("/['\"]([^'\"]+)['\"]\s*=>\s*(.*)/", $line, $matches)) {
-                $field = $matches[1];
-                $ruleValue = trim($matches[2]);
+            // Handle array format ['rule1', 'rule2', ...]
+            if (preg_match("/^\[(.*)\]$/s", $ruleValue, $arrayMatch)) {
+                $ruleArrayContent = $arrayMatch[1];
+                $ruleItems = [];
                 
-                // Remove trailing comma if present
-                $ruleValue = rtrim($ruleValue, ',');
+                // Extract individual rules from the array
+                // Handle both simple quoted strings and concatenated values
+                preg_match_all("/['\"]([^'\"]+)['\"]/", $ruleArrayContent, $ruleMatches);
                 
-                // Handle array format
-                if (preg_match("/\[(.*?)\]/s", $ruleValue, $arrayMatch)) {
-                    $ruleArray = $arrayMatch[1];
-                    $ruleItems = [];
-                    
-                    // Extract rules from array
-                    preg_match_all("/['\"]([^'\"]+)['\"]/", $ruleArray, $ruleMatches);
-                    if (!empty($ruleMatches[1])) {
-                        $rules[$field] = $ruleMatches[1];
-                    }
-                } else {
-                    // Handle string format
-                    $ruleValue = trim($ruleValue, "['\"]");
-                    if (!empty($ruleValue)) {
-                        $rules[$field] = explode('|', $ruleValue);
-                    }
+                // Also try to catch concatenated strings like 'regex:' . config(...)
+                // For now, extract what we can from quoted strings
+                if (!empty($ruleMatches[1])) {
+                    $ruleItems = $ruleMatches[1];
+                }
+                
+                // Filter out empty rules and normalize
+                $ruleItems = array_filter($ruleItems, function($item) {
+                    return !empty(trim($item));
+                });
+                
+                if (!empty($ruleItems)) {
+                    $rules[$field] = array_values($ruleItems);
+                }
+            } else {
+                // Handle string format 'rule1|rule2'
+                $ruleValue = trim($ruleValue, "['\"]");
+                if (!empty($ruleValue)) {
+                    $rules[$field] = explode('|', $ruleValue);
                 }
             }
         }
