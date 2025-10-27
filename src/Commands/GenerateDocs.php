@@ -424,8 +424,82 @@ class GenerateDocs extends Command
     protected function extractSchemaFromFormRequest($className)
     {
         try {
-            $request = new $className();
-            $rules = method_exists($request, 'rules') ? $request->rules() : [];
+            $reflection = new ReflectionClass($className);
+            
+            // Check if constructor requires parameters
+            $constructor = $reflection->getConstructor();
+            $hasRequiredParams = false;
+            
+            if ($constructor) {
+                $params = $constructor->getParameters();
+                foreach ($params as $param) {
+                    if (!$param->isOptional()) {
+                        $hasRequiredParams = true;
+                        break;
+                    }
+                }
+            }
+            
+            $rules = [];
+            
+            // Try to instantiate normally if no required params
+            if (!$hasRequiredParams) {
+                try {
+                    $request = new $className();
+                    $rules = method_exists($request, 'rules') ? $request->rules() : [];
+                } catch (\Exception $e) {
+                    // Fall back to reflection method
+                }
+            }
+            
+            // If instantiation failed or has required params, use reflection to read rules method
+            if (empty($rules) && $reflection->hasMethod('rules')) {
+                $rulesMethod = $reflection->getMethod('rules');
+                
+                // Check if rules() method has dependencies
+                $methodParams = $rulesMethod->getParameters();
+                $requiresDeps = false;
+                foreach ($methodParams as $param) {
+                    if (!$param->isOptional()) {
+                        $requiresDeps = true;
+                        break;
+                    }
+                }
+                
+                // If rules() doesn't require dependencies, try to call it directly
+                if (!$requiresDeps) {
+                    try {
+                        // Try to resolve through Laravel container if available
+                        if (app()->bound($className)) {
+                            $request = app($className);
+                            $rules = $request->rules();
+                        } else {
+                            // Try to create a mock request and instantiate
+                            $mockRequest = \Illuminate\Http\Request::create('/', 'GET');
+                            
+                            // Check if constructor accepts Request instance
+                            if ($constructor && $constructor->getNumberOfParameters() > 0) {
+                                $firstParam = $constructor->getParameters()[0];
+                                $paramType = $firstParam->getType();
+                                
+                                if ($paramType && !$paramType->isBuiltin()) {
+                                    $typeName = $paramType->getName();
+                                    
+                                    // Check if it's Request or a subclass of Request
+                                    if ($typeName === 'Illuminate\Http\Request' || 
+                                        class_exists($typeName) && is_subclass_of($typeName, 'Illuminate\Http\Request')) {
+                                        $request = $reflection->newInstance($mockRequest);
+                                        $rules = $request->rules();
+                                    }
+                                }
+                            }
+                        }
+                    } catch (\Exception $e) {
+                        // If all else fails, try to read rules from source code
+                        $rules = $this->extractRulesFromSource($reflection);
+                    }
+                }
+            }
 
             if (empty($rules)) {
                 return null;
@@ -460,6 +534,73 @@ class GenerateDocs extends Command
         } catch (\Exception $e) {
             return null;
         }
+    }
+    
+    protected function extractRulesFromSource(ReflectionClass $reflection)
+    {
+        try {
+            $fileName = $reflection->getFileName();
+            
+            if (!$fileName || !file_exists($fileName)) {
+                return [];
+            }
+            
+            $fileContent = file_get_contents($fileName);
+            
+            // Try to extract rules array from the rules() method
+            if (preg_match('/public\s+function\s+rules\(\)\s*:\s*array\s*\{([^}]+)\}/s', $fileContent, $matches)) {
+                $rulesContent = $matches[1];
+                
+                // Try to parse the return array
+                if (preg_match('/return\s*\[(.*?)\];/s', $rulesContent, $returnMatch)) {
+                    $rulesArrayContent = $returnMatch[1];
+                    return $this->parseRulesArrayFromString($rulesArrayContent);
+                }
+            }
+        } catch (\Exception $e) {
+            // Ignore parsing errors
+        }
+        
+        return [];
+    }
+    
+    protected function parseRulesArrayFromString($content)
+    {
+        $rules = [];
+        $lines = explode("\n", $content);
+        
+        foreach ($lines as $line) {
+            $line = trim($line);
+            
+            // Match patterns like 'field' => ['rule1', 'rule2'] or 'field' => 'rule1|rule2'
+            if (preg_match("/['\"]([^'\"]+)['\"]\s*=>\s*(.*)/", $line, $matches)) {
+                $field = $matches[1];
+                $ruleValue = trim($matches[2]);
+                
+                // Remove trailing comma if present
+                $ruleValue = rtrim($ruleValue, ',');
+                
+                // Handle array format
+                if (preg_match("/\[(.*?)\]/s", $ruleValue, $arrayMatch)) {
+                    $ruleArray = $arrayMatch[1];
+                    $ruleItems = [];
+                    
+                    // Extract rules from array
+                    preg_match_all("/['\"]([^'\"]+)['\"]/", $ruleArray, $ruleMatches);
+                    if (!empty($ruleMatches[1])) {
+                        $rules[$field] = $ruleMatches[1];
+                    }
+                } else {
+                    // Handle string format
+                    $ruleValue = trim($ruleValue, "['\"]");
+                    if (!empty($ruleValue)) {
+                        $rules[$field] = explode('|', $ruleValue);
+                    }
+                }
+            }
+        }
+        
+        return $rules;
     }
 
     public function convertRulesToSchema($field, $rules)
