@@ -49,19 +49,6 @@ php artisan docs:generate
 
 **That's it!** 🎉 Your API is now fully documented.
 
-**Code changes → run command → docs automatically reflect changes**
-
-### 🔄 **Documentation Stays in Sync**
-
-The best part? Your documentation **automatically stays up-to-date** with your code:
-
-1. **Make code changes** → Add new routes, update controllers, modify validation
-2. **Run `php artisan docs:generate`** → Regenerates the documentation
-3. **Deploy your code** → Documentation file goes with your code
-4. **Documentation is always current** → No manual updates needed!
-
-The `docs.json` file lives in your `public/` folder, so it's part of your project and gets deployed with every code update. Your API documentation will always reflect your latest code changes.
-
 ### 🔗 **Use with Any API Client**
 
 The generated JSON is compatible with all major API clients:
@@ -77,6 +64,19 @@ curl http://your-app-url/docs.json
 - 🚀 **Thunder Client** - VS Code extension
 - 🔥 **Bruno** - Open-source API client
 - 📱 **Any OpenAPI-compatible tool**
+
+**Code changes → run command → docs automatically reflect changes**
+
+### 🔄 **Documentation Stays in Sync**
+
+The best part? Your documentation **automatically stays up-to-date** with your code:
+
+1. **Make code changes** → Add new routes, update controllers, modify validation
+2. **Run `php artisan docs:generate`** → Regenerates the documentation
+3. **Deploy your code** → Documentation file goes with your code
+4. **Documentation is always current** → No manual updates needed!
+
+The `docs.json` file lives in your `public/` folder, so it's part of your project and gets deployed with every code update. Your API documentation will always reflect your latest code changes.
 
 ---
 
