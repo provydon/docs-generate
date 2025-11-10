@@ -20,7 +20,7 @@
     <script>
         window.onload = function() {
             window.ui = SwaggerUIBundle({
-                url: "{{ route('docs.json') }}",
+                url: "{{ route('docs.json', [], false) }}",
                 dom_id: '#swagger-ui',
                 deepLinking: true,
                 presets: [
