@@ -78,6 +78,28 @@ The best part? Your documentation **automatically stays up-to-date** with your c
 
 The `docs.json` file lives in your `public/` folder, so it's part of your project and gets deployed with every code update. Your API documentation will always reflect your latest code changes.
 
+### 🧱 Always Auto Update Your Documentation
+
+Add `php artisan docs:generate` to your deployment script or build pipeline so every release ships with freshly generated docs:
+
+```
+add php artisan docs:generate to ur deployment script or in ur build pipeline
+```
+
+You can even surface the progress logs in your CI/CD output:
+
+```
+🚀 Generating API documentation...
+
+Found 81 API routes
+
+✅ API documentation generated successfully!
+
+📄 Output: /app/public/docs.json
+
+🌐 View at: https://fikets.com/docs
+```
+
 ---
 
 ## ✨ What You Get
