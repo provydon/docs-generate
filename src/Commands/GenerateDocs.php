@@ -442,13 +442,19 @@ class GenerateDocs extends Command
             
             $rules = [];
             
-            // Try to instantiate normally if no required params
             if (!$hasRequiredParams) {
                 try {
                     $request = new $className();
+                    
+                    if (method_exists($request, 'setUserResolver')) {
+                        $request->setUserResolver(function () {
+                            return $this->createMockUser();
+                        });
+                    }
+                    
                     $rules = method_exists($request, 'rules') ? $request->rules() : [];
+                    $rules = $this->filterValidationRules($rules);
                 } catch (\Exception $e) {
-                    // Fall back to reflection method
                 }
             }
             
@@ -474,53 +480,53 @@ class GenerateDocs extends Command
                             $request = app($className);
                             $rules = $request->rules();
                         } else {
-                            // Try to create a mock request with sample data and instantiate
-                            // Create a POST request with sample data to satisfy rules() methods that depend on input
-                            $mockRequest = \Illuminate\Http\Request::create('/', 'POST', [
-                                'email' => 'test@example.com',
-                                'first_name' => 'Test',
-                                'last_name' => 'User',
-                                'phone_number' => '1234567890',
-                                'company_name' => 'Test Company',
-                                'password' => 'password123',
-                            ]);
-                            
-                            // Check if constructor accepts Request instance
-                            if ($constructor && $constructor->getNumberOfParameters() > 0) {
-                                $firstParam = $constructor->getParameters()[0];
-                                $paramType = $firstParam->getType();
-                                
-                                if ($paramType && !$paramType->isBuiltin()) {
-                                    $typeName = $paramType->getName();
+                            try {
+                                $mockRequest = \Illuminate\Http\Request::create('/', 'POST', [
+                                    'email' => 'test@example.com',
+                                    'first_name' => 'Test',
+                                    'last_name' => 'User',
+                                    'phone_number' => '1234567890',
+                                    'company_name' => 'Test Company',
+                                    'password' => 'password123',
+                                ]);
+
+                                if ($constructor && $constructor->getNumberOfParameters() > 0) {
+                                    $firstParam = $constructor->getParameters()[0];
+                                    $paramType = $firstParam->getType();
                                     
-                                    // Check if it's Request or a subclass of Request
-                                    if ($typeName === 'Illuminate\Http\Request' || 
-                                        class_exists($typeName) && is_subclass_of($typeName, 'Illuminate\Http\Request')) {
-                                        try {
+                                    if ($paramType && !$paramType->isBuiltin()) {
+                                        $typeName = $paramType->getName();
+                                        
+                                        if ($typeName === 'Illuminate\Http\Request' || 
+                                            (class_exists($typeName) && is_subclass_of($typeName, 'Illuminate\Http\Request'))) {
                                             $request = $reflection->newInstance($mockRequest);
+                                            
+                                            if (method_exists($request, 'setUserResolver')) {
+                                                $request->setUserResolver(function () {
+                                                    return $this->createMockUser();
+                                                });
+                                            }
+                                            
                                             $rules = $request->rules();
                                             
-                                            // Filter out empty rules that might result from conditional logic
-                                            $filteredRules = [];
-                                            foreach ($rules as $field => $rule) {
-                                                if (is_array($rule)) {
-                                                    $filteredRule = array_filter($rule, function($r) {
-                                                        return !empty($r) && $r !== '';
-                                                    });
-                                                    if (!empty($filteredRule)) {
-                                                        $filteredRules[$field] = array_values($filteredRule);
-                                                    }
-                                                } elseif (!empty($rule) && $rule !== '') {
-                                                    $filteredRules[$field] = $rule;
-                                                }
-                                            }
-                                            $rules = $filteredRules;
-                                        } catch (\Exception $e) {
-                                            // If instantiation or rules() fails, fall back to source parsing
-                                            $rules = [];
+                                            $rules = $this->filterValidationRules($rules);
                                         }
                                     }
+                                } else {
+                                    $request = $reflection->newInstance();
+                                    
+                                    if (method_exists($request, 'setUserResolver')) {
+                                        $request->setUserResolver(function () {
+                                            return $this->createMockUser();
+                                        });
+                                    }
+                                    
+                                    $rules = $request->rules();
+                                    
+                                    $rules = $this->filterValidationRules($rules);
                                 }
+                            } catch (\Exception $e) {
+                                $rules = [];
                             }
                         }
                     } catch (\Exception $e) {
@@ -590,12 +596,10 @@ class GenerateDocs extends Command
             $methodLines = array_slice($fileLines, $startLine - 1, $endLine - $startLine + 1);
             $methodContent = implode('', $methodLines);
             
-            // Extract the return array using balanced bracket matching
             if (preg_match('/return\s*\[/', $methodContent, $matches, PREG_OFFSET_CAPTURE)) {
                 $startPos = $matches[0][1] + strlen($matches[0][0]);
                 $content = substr($methodContent, $startPos);
                 
-                // Find the matching closing bracket
                 $bracketCount = 1;
                 $pos = 0;
                 $length = strlen($content);
@@ -615,7 +619,6 @@ class GenerateDocs extends Command
                 }
             }
         } catch (\Exception $e) {
-            // Ignore parsing errors
         }
         
         return [];
@@ -625,30 +628,32 @@ class GenerateDocs extends Command
     {
         $rules = [];
         
-        // Split by field definitions (looking for 'field' => pattern)
-        // This regex handles multi-line field definitions
-        preg_match_all("/['\"]([^'\"]+)['\"]\s*=>\s*(\[[\s\S]*?\]|['\"][^'\"]*['\"])(?:,|\s*$)/m", $content, $matches, PREG_SET_ORDER);
+        preg_match_all("/['\"]([^'\"]+)['\"]\s*=>\s*(\[[\s\S]*?\]|['\"][^'\"]*['\"]|function\s*\([^)]*\)\s*\{[\s\S]*?\})(?:,|\s*$)/m", $content, $matches, PREG_SET_ORDER);
         
         foreach ($matches as $match) {
             $field = $match[1];
             $ruleValue = trim($match[2]);
             
-            // Handle array format ['rule1', 'rule2', ...]
             if (preg_match("/^\[(.*)\]$/s", $ruleValue, $arrayMatch)) {
                 $ruleArrayContent = $arrayMatch[1];
                 $ruleItems = [];
                 
-                // Extract individual rules from the array
-                // Handle both simple quoted strings and concatenated values
-                preg_match_all("/['\"]([^'\"]+)['\"]/", $ruleArrayContent, $ruleMatches);
-                
-                // Also try to catch concatenated strings like 'regex:' . config(...)
-                // For now, extract what we can from quoted strings
-                if (!empty($ruleMatches[1])) {
-                    $ruleItems = $ruleMatches[1];
+                if (preg_match('/function\s*\([^)]*\)\s*\{[\s\S]*?\}/', $ruleArrayContent, $closureMatch)) {
+                    $closureSource = $closureMatch[0];
+                    $inferredType = $this->inferTypeFromClosureSource($closureSource, $field);
+                    $ruleItems[] = $inferredType;
                 }
                 
-                // Filter out empty rules and normalize
+                preg_match_all("/['\"]([^'\"]+)['\"]/", $ruleArrayContent, $ruleMatches);
+                
+                if (!empty($ruleMatches[1])) {
+                    $ruleItems = array_merge($ruleItems, $ruleMatches[1]);
+                }
+                
+                if (preg_match('/Rule::(\w+)\([^)]*\)/', $ruleArrayContent, $ruleMatch)) {
+                    $ruleItems[] = $ruleMatch[1];
+                }
+                
                 $ruleItems = array_filter($ruleItems, function($item) {
                     return !empty(trim($item));
                 });
@@ -656,8 +661,10 @@ class GenerateDocs extends Command
                 if (!empty($ruleItems)) {
                     $rules[$field] = array_values($ruleItems);
                 }
+            } elseif (preg_match('/function\s*\([^)]*\)\s*\{[\s\S]*?\}/', $ruleValue)) {
+                $inferredType = $this->inferTypeFromClosureSource($ruleValue, $field);
+                $rules[$field] = [$inferredType];
             } else {
-                // Handle string format 'rule1|rule2'
                 $ruleValue = trim($ruleValue, "['\"]");
                 if (!empty($ruleValue)) {
                     $rules[$field] = explode('|', $ruleValue);
@@ -849,10 +856,50 @@ class GenerateDocs extends Command
 
         $methodOverrides = $overrides[$method];
 
-        if (isset($methodOverrides['body']) && isset($operation['requestBody']['content']['application/json']['schema']['properties'])) {
-            foreach ($methodOverrides['body'] as $field => $exampleValue) {
-                if (isset($operation['requestBody']['content']['application/json']['schema']['properties'][$field])) {
-                    $operation['requestBody']['content']['application/json']['schema']['properties'][$field]['example'] = $exampleValue;
+        if (isset($methodOverrides['body'])) {
+            if (isset($operation['requestBody']['content']['application/json']['schema']['properties'])) {
+                foreach ($methodOverrides['body'] as $field => $exampleValue) {
+                    if (isset($operation['requestBody']['content']['application/json']['schema']['properties'][$field])) {
+                        $operation['requestBody']['content']['application/json']['schema']['properties'][$field]['example'] = $exampleValue;
+                    }
+                }
+            } elseif (!isset($operation['requestBody'])) {
+                $properties = [];
+                $required = [];
+                
+                foreach ($methodOverrides['body'] as $field => $exampleValue) {
+                    $type = 'string';
+                    if (is_int($exampleValue)) {
+                        $type = 'integer';
+                    } elseif (is_float($exampleValue)) {
+                        $type = 'number';
+                    } elseif (is_bool($exampleValue)) {
+                        $type = 'boolean';
+                    } elseif (is_array($exampleValue)) {
+                        $type = 'object';
+                    }
+                    
+                    $properties[$field] = [
+                        'type' => $type,
+                        'example' => $exampleValue,
+                    ];
+                    
+                    $required[] = $field;
+                }
+                
+                if (!empty($properties)) {
+                    $operation['requestBody'] = [
+                        'required' => true,
+                        'content' => [
+                            'application/json' => [
+                                'schema' => [
+                                    'type' => 'object',
+                                    'properties' => $properties,
+                                    'required' => $required,
+                                ],
+                            ],
+                        ],
+                    ];
                 }
             }
         }
@@ -1026,46 +1073,47 @@ class GenerateDocs extends Command
             'description' => 'Custom validation rule',
         ];
 
-        // Look for common validation patterns in closure source
         if (preg_match('/return\s+.*?->(?:validate|fails|passes)/', $source)) {
             $info['description'] = 'Custom validation with additional checks';
         }
 
-        // Check for email validation
+        if (preg_match('/\$this->user\(\)|->user\(\)/', $source)) {
+            $info['description'] = 'Custom validation with user context';
+        }
+
         if (preg_match('/email|@/', $source)) {
             $info['type'] = 'string';
             $info['format'] = 'email';
             $info['description'] = 'Email validation with custom rules';
         }
 
-        // Check for numeric validation
-        if (preg_match('/is_numeric|is_int|is_float|\d+/', $source)) {
+        if (preg_match('/is_numeric|is_int|is_float|is_double|floatval|intval|\$value\s*>\s*0|\$value\s*<\s*0/', $source)) {
             $info['type'] = 'number';
             $info['description'] = 'Numeric validation with custom rules';
         }
 
-        // Check for required validation
         if (preg_match('/required|not_empty|filled/', $source)) {
             $info['description'] = 'Required field with custom validation';
         }
 
-        // Check for length validation
         if (preg_match('/strlen|length|min|max/', $source)) {
             $info['type'] = 'string';
             $info['description'] = 'String length validation with custom rules';
         }
 
-        // Check for date validation
         if (preg_match('/date|time|Carbon|DateTime/', $source)) {
             $info['type'] = 'string';
             $info['format'] = 'date-time';
             $info['description'] = 'Date validation with custom rules';
         }
 
-        // Check for array validation
         if (preg_match('/is_array|array|count\(/', $source)) {
             $info['type'] = 'array';
             $info['description'] = 'Array validation with custom rules';
+        }
+
+        if (Str::endsWith($field, '_id') || $field === 'id') {
+            $info['type'] = 'integer';
         }
 
         return $info;
@@ -1079,12 +1127,103 @@ class GenerateDocs extends Command
             }
         }
 
-        // Add a note that this field has custom validation
         if (isset($schema['description'])) {
             $schema['description'] .= ' (Custom validation)';
         } else {
             $schema['description'] = 'Custom validation rule';
         }
+    }
+
+    protected function createMockUser()
+    {
+        $userClasses = [
+            'App\Models\User',
+            'App\User',
+            'Illuminate\Foundation\Auth\User',
+        ];
+
+        foreach ($userClasses as $userClass) {
+            if (class_exists($userClass)) {
+                try {
+                    $user = new $userClass();
+                    if (property_exists($user, 'id') || method_exists($user, 'getAttribute')) {
+                        $user->id = 1;
+                        return $user;
+                    }
+                } catch (\Exception $e) {
+                    continue;
+                }
+            }
+        }
+
+        $mockUser = new \stdClass();
+        $mockUser->id = 1;
+        return $mockUser;
+    }
+
+    protected function filterValidationRules($rules)
+    {
+        $filteredRules = [];
+        
+        foreach ($rules as $field => $rule) {
+            if (is_array($rule)) {
+                $filteredRule = array_filter($rule, function($r) {
+                    if ($r instanceof \Closure) {
+                        return true;
+                    }
+                    if (is_string($r) || is_numeric($r)) {
+                        return !empty($r) && $r !== '';
+                    }
+                    if (is_object($r)) {
+                        return true;
+                    }
+                    return !empty($r);
+                });
+                
+                if (!empty($filteredRule)) {
+                    $filteredRules[$field] = array_values($filteredRule);
+                }
+            } elseif ($rule instanceof \Closure) {
+                $filteredRules[$field] = [$rule];
+            } elseif (!empty($rule) && $rule !== '') {
+                $filteredRules[$field] = $rule;
+            }
+        }
+        
+        return $filteredRules;
+    }
+
+    protected function inferTypeFromClosureSource($closureSource, $field)
+    {
+        if (preg_match('/is_numeric|is_int|is_float|is_double|floatval|intval|\$value\s*>\s*0|\$value\s*<\s*0/', $closureSource)) {
+            return 'numeric';
+        }
+        
+        if (preg_match('/is_string|strlen|mb_strlen|substr/', $closureSource)) {
+            return 'string';
+        }
+        
+        if (preg_match('/is_array|count\(|array_/', $closureSource)) {
+            return 'array';
+        }
+        
+        if (preg_match('/is_bool|filter_var.*FILTER_VALIDATE_BOOLEAN/', $closureSource)) {
+            return 'boolean';
+        }
+        
+        if (preg_match('/date|time|Carbon|DateTime|strtotime/', $closureSource)) {
+            return 'date';
+        }
+        
+        if (preg_match('/email|@/', $closureSource)) {
+            return 'email';
+        }
+        
+        if (Str::endsWith($field, '_id') || $field === 'id') {
+            return 'integer';
+        }
+        
+        return 'string';
     }
 }
 
