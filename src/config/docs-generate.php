@@ -20,6 +20,19 @@ return [
         ],
     ],
 
+    'documentation_auth' => [
+        'enabled' => env('DOCS_AUTH_ENABLED', false),
+        'type' => env('DOCS_AUTH_TYPE', 'none'),
+        'allowed_emails' => env('DOCS_AUTH_ALLOWED_EMAILS', ''),
+    ],
+
+    'routes' => [
+        'enabled' => env('DOCS_ROUTES_ENABLED', true),
+        'documentation_path' => env('DOCS_PATH', '/docs'),
+        'json_path' => env('DOCS_JSON_PATH', '/docs.json'),
+        'middleware' => ['web', 'docs.cors', 'docs.auth'],
+    ],
+
     'security_schemes' => [
         'sanctum' => [
             'type' => 'http',
@@ -193,19 +206,6 @@ return [
                 'X-Custom-Header' => 'custom-value',
             ],
         ],
-    ],
-
-    'documentation_auth' => [
-        'enabled' => env('DOCS_AUTH_ENABLED', false),
-        'type' => env('DOCS_AUTH_TYPE', 'none'),
-        'allowed_emails' => env('DOCS_AUTH_ALLOWED_EMAILS', ''),
-    ],
-
-    'routes' => [
-        'enabled' => env('DOCS_ROUTES_ENABLED', true),
-        'documentation_path' => env('DOCS_PATH', '/docs'),
-        'json_path' => env('DOCS_JSON_PATH', '/docs.json'),
-        'middleware' => ['web', 'docs.cors', 'docs.auth'],
     ],
 ];
 
