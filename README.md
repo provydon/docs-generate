@@ -10,7 +10,7 @@
 
 *Generate beautiful API documentation automatically from your existing Laravel code*
 
- [☕ Buy me a coffee](https://buymeacoffee.com/provydon)
+ <a href="https://buymeacoffee.com/provydon" target="_blank" rel="noopener noreferrer">☕ Buy me a coffee</a>
 </div>
 
 ![Swagger UI Screenshot](docs/screenshot.png)
@@ -453,7 +453,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## ☕ Support
 
-If this package helped you, consider [buying me a coffee](https://buymeacoffee.com/provydon) to support development!
+If this package helped you, consider <a href="https://buymeacoffee.com/provydon" target="_blank" rel="noopener noreferrer">buying me a coffee</a> to support development!
 
 ---
 
